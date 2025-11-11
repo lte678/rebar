@@ -7,7 +7,7 @@ fn load_wind() {
     let unit_def_path = PathBuf::from("tests/unitdefs/WindGenerator.lua"); 
     let unit = load_definition_from_path(&unit_def_path).unwrap();
     let expected = Unit {
-        name: "Wind Generator".to_string(),
+        name: "WindGenerator".to_string(), // Uses file path name
         alive: false,
         metal: 0.0,
         energy: 0.0,

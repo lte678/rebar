@@ -41,14 +41,22 @@ fn get_float(map: &HashMap<String, Value>, key: &str) -> Result<f32, Box<dyn Err
 
 pub fn load_definition_from_path(definition_path: &Path) -> Result<Unit, Box<dyn Error>> {
     let definition_str = fs::read_to_string(definition_path)?;
-    parse_definition(&definition_str)
+    let mut unit = parse_definition(&definition_str)?;
+    if unit.name == "Unknown" {
+        unit.name = definition_path.file_stem().unwrap().display().to_string()
+    }
+    Ok(unit)
 }
 
 
 pub fn parse_definition(definition: &str) -> Result<Unit, Box<dyn Error>> {
     let lua = Lua::new();
 
-    let defs: HashMap<String, Value> = lua.load(definition).eval()?;
+    let mut defs: HashMap<String, Value> = lua.load(definition).eval()?;
+    if defs.len() == 1 {
+        defs = HashMap::<String, Value>::from_lua(defs.into_values().next().unwrap(), &lua)?;
+    }
+    
     let mut e_per_sec = get_float_or(&defs, "energymake", 0.0)?;
     let mut e_cost = get_float_or(&defs, "energyupkeep", 0.0)?;
     if e_cost < 0.0 {

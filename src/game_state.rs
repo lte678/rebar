@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::error::Error;
+
 use approx::abs_diff_eq;
 
 use crate::unit::Unit;
@@ -6,6 +9,7 @@ use crate::world_params::WorldParams;
 // State of the game
 pub struct GameState {
     pub units: Vec<Unit>,
+    pub unit_catalog: HashMap<String, Unit>,
     pub world_params: WorldParams,
     pub energy: f32,
     pub metal: f32,
@@ -20,6 +24,7 @@ impl GameState {
         let metal = world_params.start_metal;
         GameState { 
             units: Vec::new(),
+            unit_catalog: HashMap::new(),
             world_params,
             energy,
             metal,
@@ -29,16 +34,27 @@ impl GameState {
     }
 
 
-    // Takes a unit template as argument. 
-    pub fn add_completed_unit(&mut self, mut unit: Unit) {
-        unit.construct();
-        self.units.push(unit);
+    // Copies the unit template and constructs it.
+    // The unit must first be registered using `register_unit`. 
+    pub fn add_completed_unit(&mut self, unit_name: &str) -> Result<usize, Box<dyn Error>> {
+        let unit_idx = self.add_unit(unit_name)?;
+        self.units[unit_idx].construct();
+        Ok(unit_idx)
     }
 
     
-    // Adds a unit as-is.
-    pub fn add_unit(&mut self, unit: Unit) {
-        self.units.push(unit);
+    // Adds a unit by copying its template.
+    // The unit must first be registered using `register_unit`. 
+    pub fn add_unit(&mut self, unit_name: &str) -> Result<usize, Box<dyn Error>> {
+        let unit_template = self.unit_catalog.get(unit_name).ok_or(format!("'{}' is not a known unit.", unit_name))?;
+        self.units.push(unit_template.clone());
+        Ok(self.units.len() - 1)
+    }
+
+
+    // Make the unit available under this name
+    pub fn register_unit(&mut self, name: &str, unit: Unit) {
+        self.unit_catalog.insert(name.to_string(), unit);
     }
 
 
@@ -106,6 +122,19 @@ impl GameState {
     }
 
 
+    // Use unit to build a new unit
+    pub fn build_unit(&mut self, builder: usize, buildee: &str) -> Result<usize, Box<dyn Error>> {
+        // Make sure that the builder is allowed to build the unit
+        if !self.units[builder].build_options.contains(buildee) {
+            return Err(format!("Constructor cannot build unit '{}'.", buildee).into())
+        }
+
+        let buildee_idx = self.add_unit(buildee)?;
+        self.units[builder].build_target = Some(buildee_idx);
+        Ok(buildee_idx)
+    }
+
+
     pub fn metal_storage(&self) -> f32 {
         let mut storage: f32 = self.world_params.base_metal_storage;
         for unit in &self.units {
@@ -156,7 +185,8 @@ mod tests {
         let mut com = Unit::new_unconstructed(1.0, 1.0, 1.0);
         com.m_storage = 500.0;
         com.e_storage = 500.0;
-        state.add_completed_unit(com);
+        state.register_unit("commander", com);
+        state.add_completed_unit("commander").unwrap();
 
         // Test that the state matches the start of a normal game of BAR
         state.simulate(0.01);
@@ -188,7 +218,8 @@ mod tests {
         com.e_storage = 500.0;
         com.e_per_second = 30.0;
         com.m_per_second = 2.0;
-        state.add_completed_unit(com);
+        state.register_unit("commander", com);
+        state.add_completed_unit("commander").unwrap();
 
         state.simulate(2.0);
         assert_abs_diff_eq!(state.energy, 560.0);
@@ -211,7 +242,8 @@ mod tests {
         let mut wind = Unit::new_unconstructed(1.0, 1.0, 1.0);
         wind.wind_e_per_second = 25.0;
         wind.e_storage = 100.0;
-        state.add_completed_unit(wind);
+        state.register_unit("wind", wind);
+        state.add_completed_unit("wind").unwrap();
 
         // Wind energy should be limited by the minimum of the unit's wind e and environment wind.
         state.simulate(2.0);
@@ -231,8 +263,9 @@ mod tests {
         let mut wind = Unit::new_unconstructed(1.0, 1.0, 1.0);
         wind.wind_e_per_second = 25.0;
         wind.e_storage = 100.0;
-        state.add_completed_unit(wind.clone());
-        state.add_completed_unit(wind);
+        state.register_unit("wind", wind);
+        state.add_completed_unit("wind").unwrap();
+        state.add_completed_unit("wind").unwrap();
 
         // Wind energy should be limited by the minimum of the unit's wind e and environment wind.
         state.simulate(2.0);
@@ -253,7 +286,8 @@ mod tests {
         mex.m_storage = 50.0;
         mex.e_cost_per_second = 3.0;
         mex.m_per_second = 3.0;
-        state.add_completed_unit(mex);
+        state.register_unit("mex", mex);
+        state.add_completed_unit("mex").unwrap();
 
         state.simulate(2.0);
         assert_abs_diff_eq!(state.energy, 19.0);
@@ -284,9 +318,9 @@ mod tests {
         mex.m_storage = 50.0;
         mex.e_cost_per_second = 3.0;
         mex.m_per_second = 3.0;
-        state.add_completed_unit(mex.clone());
-        state.add_completed_unit(mex);
-
+        state.register_unit("mex", mex);
+        state.add_completed_unit("mex").unwrap();
+        state.add_completed_unit("mex").unwrap();
 
         state.simulate(4.0);
         assert_abs_diff_eq!(state.energy, 4.0);
@@ -313,13 +347,16 @@ mod tests {
         com.m_storage = 500.0;
         com.e_storage = 500.0;
         com.buildpower = 300.0;
-        state.add_completed_unit(com);
-
+        state.register_unit("commander", com);
+        
         // Add an incomplete unit.
         let mut wind = Unit::new_unconstructed(40.0, 175.0, 1600.0);
         wind.wind_e_per_second = 25.0;
         wind.e_storage = 100.0;
-        state.add_unit(wind);
+        state.register_unit("wind", wind);
+        
+        state.add_completed_unit("commander").unwrap();
+        state.add_unit("wind").unwrap();
 
         // Assert that the wind is not producing energy, since it is not constructed
         state.simulate(1.0);
@@ -348,5 +385,48 @@ mod tests {
         assert_abs_diff_eq!(state.units[1].metal, 40.0);
         assert_abs_diff_eq!(state.energy, 500.0 - 175.0 + 20.0);
         assert_abs_diff_eq!(state.metal, 500.0 - 40.0);
+    }
+
+
+    #[test]
+    fn test_build_unit() {
+        // Create the world
+        let mut state = GameState::new(WorldParams::default());
+        state.wind_strength = 20.0;
+        state.energy = 500.0;
+        state.metal = 500.0;
+
+        let mut com = Unit::new_unconstructed(1.0, 1.0, 1.0);
+        com.m_storage = 500.0;
+        com.e_storage = 500.0;
+        com.buildpower = 300.0;
+        state.register_unit("commander", com);
+        
+        let mut wind = Unit::new_unconstructed(40.0, 175.0, 1600.0);
+        wind.wind_e_per_second = 25.0;
+        wind.e_storage = 100.0;
+        state.register_unit("wind", wind);
+        
+        
+        // Create a commander.
+        let com_idx = state.add_completed_unit("commander").unwrap();
+        // Produce a unit that the commander may not build
+        let err = state.build_unit(com_idx, "wind");
+        assert!(matches!(err, Err(_)));
+        assert_eq!(state.units.len(), 1);
+
+        // Add the unit to the commander's capabilities
+        state.units[0].build_options.insert("wind".to_string());
+        state.build_unit(com_idx, "wind").unwrap();
+        assert_eq!(state.units.len(), 2);
+
+        // Build the wind. Should take 5.333 seconds
+        // It should be automatically selected by the commander.
+        state.simulate(0.5 * (1600.0 / 300.0));
+        assert!(!state.units[1].alive);
+        assert_abs_diff_eq!(state.units[1].energy, 175.0 * 0.5);
+        assert_abs_diff_eq!(state.units[1].metal, 40.0 * 0.5);
+        assert_abs_diff_eq!(state.energy, 500.0 - 175.0 * 0.5);
+        assert_abs_diff_eq!(state.metal, 500.0 - 40.0 * 0.5);
     }
 }

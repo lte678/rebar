@@ -13,6 +13,7 @@ pub struct GameState {
     pub world_params: WorldParams,
     pub energy: f32,
     pub metal: f32,
+    last_metal_production: f32,
     pub wind_strength: f32,
     pub time: f32,
 }
@@ -28,6 +29,7 @@ impl GameState {
             world_params,
             energy,
             metal,
+            last_metal_production: 0.0,
             wind_strength: 25.0,
             time: 0.0,
         }
@@ -60,12 +62,8 @@ impl GameState {
 
     pub fn simulate(&mut self, dt: f32) {
         // Energy and metal production
-        for unit in &self.units {
-            if unit.alive {
-                self.energy += dt * unit.e_per_second;
-                self.energy += dt * unit.wind_e_per_second.min(self.wind_strength);
-            }
-        }
+        self.energy += dt * self.energy_production();
+        
         // Let everything consume energy before we clamp the upper storage limits.
         
         // For resource consumption, we technically need to implement the BAR priority system.
@@ -76,16 +74,18 @@ impl GameState {
         // We will try to imitate the system where the energy is allocated in a binary fashion.
         // It also seems that the order things are built matters, so the fact that an arbitrary unit will be preferred
         // over other ones due to it's iteration order is intended behavior.
+        self.last_metal_production = 0.0;
         for unit in &self.units {
             if unit.alive {
                 let e_consumed = dt * unit.e_cost_per_second;
                 if self.energy > e_consumed {
                     self.energy -= e_consumed;
                     // Do things that powered units do, like produce metal.
-                    self.metal  += dt * unit.m_per_second;
+                    self.last_metal_production += unit.m_per_second;
                 }
             }
         }
+        self.metal += dt * self.last_metal_production;
 
         // Assign build power
         // We need to use index-based loops since we are modifying the contents of elements different to the one we are looped over.
@@ -155,6 +155,23 @@ impl GameState {
             }
         }
         storage
+    }
+
+
+    pub fn energy_production(&self) -> f32 {
+        let mut e_prod = 0.0;
+        for unit in &self.units {
+            if unit.alive {
+                e_prod += unit.e_per_second;
+                e_prod += unit.wind_e_per_second.min(self.wind_strength);
+            }
+        }
+        e_prod
+    }
+
+
+    pub fn metal_production(&self) -> f32 {
+        self.last_metal_production
     }
 }
 
@@ -271,6 +288,8 @@ mod tests {
         // Wind energy should be limited by the minimum of the unit's wind e and environment wind.
         state.simulate(2.0);
         assert_abs_diff_eq!(state.energy, 532.0);
+
+        assert_abs_diff_eq!(state.energy_production(), 16.0);
     }
 
 
@@ -326,6 +345,9 @@ mod tests {
         state.simulate(4.0);
         assert_abs_diff_eq!(state.energy, 4.0);
         assert_abs_diff_eq!(state.metal, 524.0);
+
+        assert_abs_diff_eq!(state.metal_production(), 6.0);
+
         state.simulate(1.0); // Energy stall
         assert_abs_diff_eq!(state.energy, 1.0);
         assert_abs_diff_eq!(state.metal, 527.0);

@@ -108,6 +108,7 @@ impl GameState {
 
                 if abs_diff_eq!(build_step, remaining) {
                     self.units[target_idx].construct();
+                    self.units[i].build_target = None;
                 }
             }
         }
@@ -381,10 +382,12 @@ mod tests {
         assert_abs_diff_eq!(state.metal, 500.0 - 40.0);
 
         state.simulate(1.0);
-                assert_abs_diff_eq!(state.units[1].energy, 175.0);
+        assert_abs_diff_eq!(state.units[1].energy, 175.0);
         assert_abs_diff_eq!(state.units[1].metal, 40.0);
         assert_abs_diff_eq!(state.energy, 500.0 - 175.0 + 20.0);
         assert_abs_diff_eq!(state.metal, 500.0 - 40.0);
+
+        assert_eq!(state.units[0].build_target, None);
     }
 
 

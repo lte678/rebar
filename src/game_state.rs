@@ -1,3 +1,5 @@
+use approx::abs_diff_eq;
+
 use crate::unit::Unit;
 use crate::world_params::WorldParams;
 
@@ -29,10 +31,13 @@ impl GameState {
 
     // Takes a unit template as argument. 
     pub fn add_completed_unit(&mut self, mut unit: Unit) {
-        unit.metal = unit.m_build_cost;
-        unit.energy = unit.e_build_cost;
-        unit.alive = true;
+        unit.construct();
+        self.units.push(unit);
+    }
 
+    
+    // Adds a unit as-is.
+    pub fn add_unit(&mut self, unit: Unit) {
         self.units.push(unit);
     }
 
@@ -62,6 +67,31 @@ impl GameState {
                     self.energy -= e_consumed;
                     // Do things that powered units do, like produce metal.
                     self.metal  += dt * unit.m_per_second;
+                }
+            }
+        }
+
+        // Assign build power
+        // We need to use index-based loops since we are modifying the contents of elements different to the one we are looped over.
+        for i in 0..self.units.len() {
+            if let Some(target_idx) = self.units[i].build_target && self.units[i].alive {
+                // This unit is building something
+                // The percentage of the target to build in this timestep
+                let mut build_step = dt * self.units[i].buildpower / self.units[target_idx].buildtime;
+                let remaining = 1.0 - self.units[target_idx].metal / self.units[target_idx].m_build_cost;
+                build_step = build_step.min(remaining);
+                
+                let build_m_cost = build_step * self.units[target_idx].m_build_cost;
+                let build_e_cost = build_step * self.units[target_idx].e_build_cost;
+                if build_m_cost < self.metal && build_e_cost < self.energy {
+                    self.metal -= build_m_cost;
+                    self.energy -= build_e_cost;
+                    self.units[target_idx].metal += build_m_cost;
+                    self.units[target_idx].energy += build_e_cost;
+                }
+
+                if abs_diff_eq!(build_step, remaining) {
+                    self.units[target_idx].construct();
                 }
             }
         }
@@ -267,5 +297,56 @@ mod tests {
         state.simulate(1.0); // Energy stall
         assert_abs_diff_eq!(state.energy, 1.0);
         assert_abs_diff_eq!(state.metal, 527.0);
+    }
+
+
+    #[test]
+    fn test_build_power() {
+        // Create the world
+        let mut state = GameState::new(WorldParams::default());
+        state.wind_strength = 20.0;
+        state.energy = 500.0;
+        state.metal = 500.0;
+
+        // Create a commander.
+        let mut com = Unit::new_unconstructed(1.0, 1.0, 1.0);
+        com.m_storage = 500.0;
+        com.e_storage = 500.0;
+        com.buildpower = 300.0;
+        state.add_completed_unit(com);
+
+        // Add an incomplete unit.
+        let mut wind = Unit::new_unconstructed(40.0, 175.0, 1600.0);
+        wind.wind_e_per_second = 25.0;
+        wind.e_storage = 100.0;
+        state.add_unit(wind);
+
+        // Assert that the wind is not producing energy, since it is not constructed
+        state.simulate(1.0);
+        assert_abs_diff_eq!(state.energy, 500.0);
+        assert_abs_diff_eq!(state.metal, 500.0);
+
+        // Build the wind. Should take 5.333 seconds
+        state.units[0].build_target = Some(1);
+
+        state.simulate(0.5 * (1600.0 / 300.0));
+        assert!(!state.units[1].alive);
+        assert_abs_diff_eq!(state.units[1].energy, 175.0 * 0.5);
+        assert_abs_diff_eq!(state.units[1].metal, 40.0 * 0.5);
+        assert_abs_diff_eq!(state.energy, 500.0 - 175.0 * 0.5);
+        assert_abs_diff_eq!(state.metal, 500.0 - 40.0 * 0.5);
+
+        state.simulate(0.5 * (1600.0 / 300.0) + 1e-9);
+        assert!(state.units[1].alive);
+        assert_abs_diff_eq!(state.units[1].energy, 175.0);
+        assert_abs_diff_eq!(state.units[1].metal, 40.0);
+        assert_abs_diff_eq!(state.energy, 500.0 - 175.0);
+        assert_abs_diff_eq!(state.metal, 500.0 - 40.0);
+
+        state.simulate(1.0);
+                assert_abs_diff_eq!(state.units[1].energy, 175.0);
+        assert_abs_diff_eq!(state.units[1].metal, 40.0);
+        assert_abs_diff_eq!(state.energy, 500.0 - 175.0 + 20.0);
+        assert_abs_diff_eq!(state.metal, 500.0 - 40.0);
     }
 }

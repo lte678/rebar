@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 #[derive(PartialEq, Clone, Debug)]
 pub struct Unit {
     // Status
@@ -12,6 +14,7 @@ pub struct Unit {
     // Unit actions
     pub buildpower: f32,
     pub build_target: Option<usize>, // Points to target in world unit list
+    pub build_options: HashSet<String>,
 
     // Unit construction
     pub buildtime: f32,
@@ -38,6 +41,7 @@ impl Unit {
             energy: 0.0,
             buildpower: 0.0,
             build_target: None,
+            build_options: HashSet::new(),
             buildtime,
             m_build_cost: m_cost,
             e_build_cost: e_cost,

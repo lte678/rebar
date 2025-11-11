@@ -41,6 +41,7 @@ fn load_commander() {
         energy: 0.0,
         buildpower: 300.0,
         build_target: None,
+        build_options: vec!["armwin", "armsolar", "armmex", "armlab"].into_iter().map(str::to_owned).collect(),
         buildtime: 75000.0,
         m_build_cost: 2700.0,
         e_build_cost: 26000.0,

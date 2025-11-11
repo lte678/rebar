@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::{collections::HashMap, error::Error, fs, path::Path};
 
 use mlua::prelude::*;
@@ -57,12 +58,19 @@ pub fn parse_definition(definition: &str) -> Result<Unit, Box<dyn Error>> {
         defs = HashMap::<String, Value>::from_lua(defs.into_values().next().unwrap(), &lua)?;
     }
     
+    // Parse energy production and use
     let mut e_per_sec = get_float_or(&defs, "energymake", 0.0)?;
     let mut e_cost = get_float_or(&defs, "energyupkeep", 0.0)?;
     if e_cost < 0.0 {
         e_per_sec -= e_cost;
         e_cost = 0.0
     }
+    // Parse build options
+    let build_options = match defs.remove("buildoptions") {
+        Some(lua_map) => HashMap::<i32, String>::from_lua(lua_map, &lua)?.into_values().collect(),
+        None => HashSet::new(),
+    };
+
     Ok(Unit {
         name: get_string_or(&defs, "name", "Unknown")?,
         alive: false,
@@ -70,6 +78,7 @@ pub fn parse_definition(definition: &str) -> Result<Unit, Box<dyn Error>> {
         energy: 0.0,
         buildpower: get_float_or(&defs, "workertime", 0.0)?,
         build_target: None,
+        build_options,
         buildtime: get_float(&defs, "buildtime")?,
         m_build_cost: get_float(&defs, "metalcost")?,
         e_build_cost: get_float(&defs, "energycost")?,
